@@ -1,0 +1,634 @@
+<?php
+
+require_once 'login.php';
+
+$conn = new mysqli('localhost', $username, $password, 'rollers317');
+
+if($conn->connect_error)
+    die($conn->connect_error);
+
+$path_name = $_SERVER["PATH_INFO"];
+
+$break = substr($path_name, 1);
+$break_up = explode("/", $break);
+$url = $_SERVER["REQUEST_URI"];
+
+$movie = $conn->real_escape_string($break_up[0]);
+$id = $conn->real_escape_string($break_up[1]);
+$imageN = $conn->real_escape_string($break_up[2]);
+$pos = strpos($url, '?');
+
+if($_SERVER["SERVER_PORT"] != 443) {
+    $httpsUrl ="https://{$_SERVER['HTTP_HOST']}{$_SERVER['REQUEST_URI']}";
+
+    header("Location:$httpsUrl", true, 301);
+    exit();
+}
+
+if ($pos !== false) {
+
+    $diff = explode("&", $_SERVER["QUERY_STRING"]);
+
+    if (count($diff) < 4) {
+        http_response_code(401);
+        die();
+    }
+
+    $perpage = 200;
+    $page = 1;
+
+    foreach($diff as &$value) {
+        if (strpos($value, 'x_a=') !== false) {
+            $equ = strpos($value, '=');
+            $value = substr($value, $equ + 1);
+            $clientid = $value;
+
+        }
+
+        else if (strpos($value, 'x_b=') !== false) {
+            $equ = strpos($value, '=');
+            $value = substr($value, $equ + 1);
+            $clientkey = $value;
+        }
+
+        else if (strpos($value, 'x_c=') !== false) {
+            $equ = strpos($value, '=');
+            $value = substr($value, $equ + 1);
+            $userid = $value;
+        }
+
+        else if (strpos($value, 'x_d=') !== false) {
+            $equ = strpos($value, '=');
+            $value = substr($value, $equ + 1);
+            $userkey = $value;
+        }
+
+        else if (strpos($value, 'perpage=') !== false) {
+            $equ = strpos($value, '=');
+            $value = substr($value, $equ + 1);
+            $perpage = $value;
+            if ($value >= 200)
+                $perpage = 200;
+        }
+
+        else if (strpos($value, 'page=') !== false) {
+            $equ = strpos($value, '=');
+            $value = substr($value, $equ + 1);
+            $page = $value;
+        }
+     
+    }
+
+    $salt1 = "ieF2chuw".$clientkey;
+    $salt2 = "ieF2chuw".$userkey;
+    $diff[1] = MD5($salt1);
+    $diff[3] = MD5($salt2);
+    
+    $authQuery = $conn->query("SELECT staff_id FROM sakila_apiservice JOIN sakila_apiuser USING (apiservice_id) WHERE user_id = '{$userid}' AND user_key = '{$diff[3]}' AND client_id = '{$clientid}' AND client_key = '{$diff[1]}';");
+
+    $outPut = $authQuery->fetch_assoc();
+
+    //print_r($outPut);
+    //echo $movie;
+    if ($authQuery->num_rows == 0) {
+        http_response_code(401);
+        die();
+    }
+
+    else if ($outPut['staff_id'] == 2 || ($outPut['staff_id'] == 3 && $movie == "movies") || ($outPut['staff_id'] == 4 && $movie == "movies")) {
+       
+if ($movie == "movies") {
+    $method = $_SERVER["REQUEST_METHOD"];
+
+    if ($method == "GET") {
+
+        if (count($break_up) == 2) {
+
+            if ($id == null) {
+                http_response_code(400);
+                die();
+            }   
+            $query = $conn->query("SELECT * FROM sakila_film WHERE film_id = {$id};");
+            $output = $query->fetch_assoc();
+            
+            if ($query->num_rows == 0) {
+                http_response_code(404);
+                die();
+            }
+
+            http_response_code(200);
+            echo json_encode($output);
+        }
+        
+        else {
+            $output = array();
+
+            $A = ($page - 1) * $perpage;
+
+            $query = $conn->query("SELECT * FROM sakila_film ORDER BY film_id LIMIT {$A}, {$perpage};");
+
+            if ($query->num_rows == 0) {
+                http_response_code(404);
+                die();
+            }
+            
+            while($row = $query->fetch_assoc())
+                $output[] = $row;
+
+            http_response_code(200);
+            echo json_encode($output);
+        }
+    }
+
+    if ($outPut['staff_id'] == 2 || $outPut['staff_id'] == 3) {
+
+    if ($method == "POST") {
+        parse_str(file_get_contents("php://input"), $var);
+     
+        if (isset($var['title']) && isset($var['description']) && isset($var['rating'])) {
+            
+            if ((isset($var["release_year"]) && is_numeric($var["release_year"]) && $var["release_year"] == (int)$var["release_year"]) && (isset($var["rental_duration"]) && is_numeric($var["rental_duration"]) && $var["rental_duration"] == (int)$var["rental_duration"]) && (isset($var["rental_rate"]) && is_numeric($var["rental_rate"]) && $var["rental_rate"] == (float)$var["rental_rate"]) && (isset($var["length"]) && is_numeric($var["length"]) && $var["length"] == (int)$var["length"]) && (isset($var["replacement_cost"]) && is_numeric($var["replacement_cost"]) && $var["replacement_cost"] == (float)$var["replacement_cost"])) {
+
+                
+                $queryInsert = $conn->query("INSERT INTO sakila_film (title, description, release_year, language_id, rental_duration, rental_rate, length, replacement_cost, rating) VALUES ('{$var['title']}', '{$var['description']}', '{$var['release_year']}', 1, '{$var['rental_duration']}', '{$var['rental_rate']}', '{$var['length']}', '{$var['replacement_cost']}', '{$var['rating']}')");
+
+                $querySelect = $conn->query("SELECT * FROM sakila_film WHERE film_id = {$conn->insert_id};");
+                $output = $querySelect->fetch_assoc();
+                
+                
+                if ($querySelect->num_rows == 0) {
+                    http_response_code(404);
+                    die();
+                }
+
+                http_response_code(201);
+                echo json_encode($output);
+            
+            }
+
+            else {
+                http_response_code(400);
+                die();
+            }
+        }
+
+        else {
+            http_repsonse_code(400);
+            die();
+        }
+        
+    }
+
+    else if ($method == "DELETE") {
+
+        if ($id == null) {
+            http_response_code(400);
+            die();
+        }
+
+        $queryDel = $conn->query("DELETE FROM sakila_film WHERE film_id = {$id}");
+
+        if ($conn->affected_rows == 0) {
+            http_response_code(404);
+            die();
+        }
+
+        http_response_code(204);
+
+    }
+
+    else if ($method == "PUT") {
+        parse_str(file_get_contents("php://input"), $var);
+
+         if ($id == null) {
+                http_response_code(400);
+                die();
+            }
+
+         else if (count($var) != 0) {
+        
+            $queryInsert = $conn->query("UPDATE sakila_film SET title = '{$var['title']}', description = '{$var['description']}', release_year = '{$var['release_year']}', rental_duration = '{$var['rental_duration']}', rental_rate = '{$var['rental_rate']}', length = '{$var['length']}', replacement_cost = '{$var['replacement_cost']}', rating = '{$var['rating']}' WHERE film_id = {$id}");
+
+        
+
+            $querySelect = $conn->query("SELECT * FROM sakila_film WHERE film_id = {$id}");
+            $output = $querySelect->fetch_assoc();
+
+            http_response_code(201);
+            echo json_encode($output);
+
+        }
+
+        else {
+            $querySelect = $conn->query("SELECT * FROM sakila_film WHERE film_id = {$id}");
+            $output = $querySelect->fetch_assoc();
+            
+            http_response_code(204);
+            echo json_encode($output);
+        }
+    }
+
+    }
+
+    else if (($method == "PUT" || $method == "POST" || $method == "DELETE") && $outPut['staff_id'] == 4) {
+        http_response_code(403);
+        die();
+    }
+
+    else {
+        // this is if the method is not a GET, POST, DELETE, or PUT or is not specified        
+        http_response_code(405);
+        die();
+    }
+
+    
+}
+
+else if ($movie == "staff" && $outPut['staff_id'] == 2) {
+    http_response_code(403);
+    die();
+}
+
+else {
+    http_response_code(405);
+    die();
+}
+
+    }
+
+
+    else if (($outPut['staff_id'] == 3 && $movie == "actors") || ($outPut['staff_id'] == 4 && $movie == "actors")) {
+
+        $method = $_SERVER['REQUEST_METHOD'];
+
+        if ($method == "GET") {
+
+            if ($imageN == null) {
+        if (count($break_up) == 2) {
+
+            if ($id == null) {
+                http_response_code(400);
+                die();
+            }   
+            $query = $conn->query("SELECT * FROM sakila_actor WHERE actor_id = {$id};");
+            $output = $query->fetch_assoc();
+            
+            if ($query->num_rows == 0) {
+                http_response_code(404);
+                die();
+            }
+
+            http_response_code(200);
+            echo json_encode($output);
+        }
+        
+        else {
+            $output = array();
+
+            if ($perpage >= 50)
+                $perpage = 50;
+
+            $A = ($page - 1) * $perpage;
+
+            $query = $conn->query("SELECT * FROM sakila_actor ORDER BY actor_id LIMIT {$A}, {$perpage};");
+
+            if ($query->num_rows == 0) {
+                http_response_code(404);
+                die();
+            }
+            
+            while($row = $query->fetch_assoc())
+                $output[] = $row;
+
+            http_response_code(200);
+            echo json_encode($output);
+        }
+
+            }
+
+            else if ($imageN == "photo" && $id != null) {
+                $getImagequery = $conn->query("SELECT photo FROM sakila_actor_photo WHERE actor_id = {$id}");
+
+                if ($getImagequery->num_rows == 0) {
+                 http_response_code(404);
+                 die();
+                }
+            
+                $image = $getImagequery->fetch_assoc()["picture"];
+                
+                http_response_code(200);
+                echo $image;
+            }
+
+            else {
+                http_response_code(400);
+                die();
+            }
+        }
+
+        else if ($outPut['staff_id'] == 3 && $method != "GET") {
+
+            if ($method == "POST") {
+                if (count($break_up) == 1) {
+             parse_str(file_get_contents("php://input"), $var);
+     
+             if (isset($var['first_name']) && isset($var['last_name'])) {
+
+                 $queryInsert = $conn->query("INSERT INTO sakila_actor (first_name, last_name) VALUES ('{$var['first_name']}', '{$var['last_name']}');");
+
+                 $querySelect = $conn->query("SELECT * FROM sakila_actor WHERE actor_id = {$conn->insert_id};");
+
+                 $output = $querySelect->fetch_assoc();
+                
+                
+                 if ($querySelect->num_rows == 0) {
+                     http_response_code(404);
+                     die();
+                 }
+                 
+                 http_response_code(201);
+                 echo json_encode($output);
+                 
+             }
+
+             else {
+                  http_response_code(400);
+                  die();
+             }
+
+                }
+
+                else if (count($break_up) == 3 && $imageN == "photo" && $id != null) {
+                    if ($_FILES["picture"]["error"] == 0) {
+
+                $filename = "/home/mathcs/users/fall17/rollers/cs317/" . $_FILES["picture"]["name"];
+                $getting = $conn->query("SELECT * FROM sakila_actor WHERE actor_id = {$id};");
+
+                if ($getting->num_rows == 0) {
+                    http_response_code(404);
+                    die();
+                 }                
+                
+                move_uploaded_file($_FILES["picture"]["tmp_name"], $filename);
+
+                $image = $conn->real_escape_string(file_get_contents($filename));
+                $updateQuery = $conn->query("INSERT INTO sakila_actor_photo (actor_id, photo) VALUES ({$id}, '{$image}');");
+
+                $getImagequery = $conn->query("SELECT * FROM sakila_actor WHERE actor_id = {$id}");
+                $image = $getImagequery->fetch_assoc()["picture"];
+                
+                http_response_code(201);
+
+                echo $image;
+                
+                    }
+            
+            else {
+                print "There was an error uploading the file.";
+                http_response_code(400);
+                die();
+            }
+
+                }
+
+               
+            }
+             
+            else if ($method == "PUT") {
+                parse_str(file_get_contents("php://input"), $var);
+
+                if ($id == null) {
+                    http_response_code(400);
+                    die();
+                }
+
+                else if (count($var) != 0) {
+
+                    $query = $conn->query("SELECT * FROM sakila_actor WHERE actor_id = {$id};");
+                    $output = $query->fetch_assoc();
+            
+                    if ($query->num_rows == 0) {
+                        http_response_code(404);
+                        die();
+                    }
+        
+                    $queryInsert = $conn->query("UPDATE sakila_actor SET first_name = '{$var['first_name']}', last_name = '{$var['last_name']}' WHERE actor_id = {$id};");
+
+        
+
+                    $querySelect = $conn->query("SELECT * FROM sakila_actor WHERE actor_id = {$id}");
+                    $output = $querySelect->fetch_assoc();
+                    
+                    http_response_code(201);
+                    echo json_encode($output);
+                    
+                }
+                
+                else {
+                    $querySelect = $conn->query("SELECT * FROM sakila_actor WHERE actor_id = {$id}");
+                    $output = $querySelect->fetch_assoc();
+                    
+                    http_response_code(204);
+                    echo json_encode($output);
+                }
+                
+                
+            }
+
+            else if ($method == "DELETE") {
+                if (count($break_up) == 2) {
+                 if ($id == null) {
+                     http_response_code(400);
+                     die();
+                 }
+                 
+                 $queryDel = $conn->query("DELETE FROM sakila_actor WHERE actor_id = {$id}");
+                 
+                 if ($conn->affected_rows == 0) {
+                     http_response_code(404);
+                     die();
+                 }
+
+                 http_response_code(204);
+
+                }
+
+                else if (count($break_up) == 3 && $imageN == "photo" && $id != null) {
+                    $delImageQuery = $conn->query("DELETE FROM sakila_actor_photo WHERE actor_id = {$id};");
+
+                    if ($conn->affected_rows == 0) {
+                        http_response_code(404);
+                        die();
+                    }
+
+                    http_response_code(204);
+                }
+
+                else {
+                    http_response_code(400);
+                    die();
+                }
+            }
+            
+            else {
+                http_response_code(405);
+                die();
+            }
+            
+
+        }
+
+        else {
+            http_response_code(403);
+            die();
+        }
+
+    }
+
+    else if ($outPut['staff_id'] == 1 || ($outPut['staff_id'] == 3 && $movie == "staff") || ($outPut['staff_id'] == 4 && $movie == "staff")) {
+        if ($movie == "staff") {
+    $method = $_SERVER["REQUEST_METHOD"];
+
+    if (count($break_up) == 3) {
+
+        if ($method == "GET") {
+            
+            if ($id == null) {
+                http_response_code(400);
+                die();
+            }
+
+            else if ($imageN != "image") {
+                http_response_code(400);
+                die();
+            }
+            
+            $getImagequery = $conn->query("SELECT * FROM sakila_staff WHERE staff_id = {$id}");
+
+             if ($getImagequery->num_rows == 0) {
+                http_response_code(404);
+                die();
+            }
+            
+            $image = $getImagequery->fetch_assoc()["picture"];
+
+            http_response_code(200);
+            echo $image;
+        }
+
+        if ($outPut['staff_id'] == 1 || $outPut['staff_id'] == 3) {
+
+        if ($method == "POST") {
+           
+            if ($id == null) {
+                http_response_code(400);
+                die();
+            }
+
+            else if ($imageN != "image") {
+                http_response_code(400);
+                die();
+            }
+
+            else if ($_FILES["picture"]["error"] == 0) {
+
+                $filename = "/home/mathcs/users/fall17/rollers/cs317/" . $_FILES["picture"]["name"];
+                $get = $conn->query("SELECT * FROM sakila_staff WHERE staff_id = {$id}");
+
+                if ($get->num_rows == 0) {
+                    http_response_code(404);
+                    die();
+                }                
+                
+                move_uploaded_file($_FILES["picture"]["tmp_name"], $filename);
+
+                $image = $conn->real_escape_string(file_get_contents($filename));
+                $updateQuery = $conn->query("UPDATE sakila_staff SET picture = '{$image}' WHERE staff_id = {$id}");
+
+                $getImagequery = $conn->query("SELECT * FROM sakila_staff WHERE staff_id = {$id}");
+                $image = $getImagequery->fetch_assoc()["picture"];
+                
+                http_response_code(201);
+
+                echo $image;
+                
+            }
+            
+            else {
+                print "There was an error uploading the file.";
+                http_response_code(400);
+                die();
+            }
+            
+
+        }
+
+        else if ($method == "DELETE") {
+            
+            if ($id == null) {
+                http_response_code(400);
+                die();
+            }
+
+            else if ($imageN != "image") {
+                http_response_code(400);
+                die();
+            }
+
+            else {
+                $delImageQuery = $conn->query("UPDATE sakila_staff SET picture = NULL WHERE staff_id = {$id}");
+
+                if ($conn->affected_rows == 0) {
+                    http_response_code(404);
+                    die();
+                }
+
+                http_response_code(204);
+            
+            }
+            
+            
+        }
+
+        }
+
+        else if (($method == "POST" || $method == "DELETE" || $method == "PUT") && $outPut['staff_id'] == 4) {
+            http_response_code(403);
+            die();
+        }
+        
+    }
+
+    else {
+        http_response_code(400);
+    }
+
+        }
+
+        else if ($movie == "movies" && $outPut['staff_id'] == 1) {
+            http_response_code(403);
+            die();
+        }
+
+        else {
+            http_response_code(405);
+            die();
+        }
+        
+    }
+
+    else {
+        http_response_code(403);
+        die();
+    }
+
+}
+
+else {
+    http_response_code(401);
+    die();
+
+}
+
+
+?>

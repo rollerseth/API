@@ -1,0 +1,87 @@
+<?php
+
+//Author: Seth Roller
+
+// curling the class schedule 
+
+$ch = curl_init("http://static4.mathcs.wilkes.edu/scheds/coursesf18.html");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+$data = curl_exec($ch);
+curl_close($ch);
+
+// break up the HTML code by line
+$numLines = explode("\n", $data);
+
+// reg expression that captures all HTML between tr tags
+$regEx = '/<tr>(.*)<\/tr>/';
+
+// reg expression used to split up
+$otherReg = '/<\/td><td[^>]*>/';
+
+$subj = [];
+$sec = [];
+$stud = [];
+$reg = [];
+
+$counter = 0;
+$sumSec = 0;
+$sumStud = 0;
+$sumReg = 0;
+
+foreach($numLines as $f) {
+    preg_match($regEx, $f, $output);
+    $newOut = preg_split($otherReg, $output[1]);
+    if (count($newOut) == 13) {
+
+        preg_match('/">([A-Z]*&)/', $newOut[0], $otherOut);
+        preg_match('/[A-Z]*/', $otherOut[1], $initials);
+
+        // initials is the subject code
+        // newout[11] is the students enrolled
+        // newOut[4] is the credits per course
+
+        array_push($subj, $initials[0]);
+              
+        if ($initials[0] == $subj[count($subj) - 2] || ($counter == 0)) {
+            $sumStud += $newOut[11];
+            $sumReg += ($newOut[4] * $newOut[11]);
+            $sumSec += 1;
+
+            if ($initials[0] == "WS") {
+                array_push($stud, $sumStud);
+                array_push($reg, $sumReg);
+                array_push($sec, $sumSec);
+            }
+        }
+        
+        else {
+            array_push($stud, $sumStud);
+            array_push($reg, $sumReg);
+            array_push($sec, $sumSec);
+            
+            $sumStud = 0;
+            $sumReg = 0;
+            $sumSec = 0;
+
+            $sumSec += 1;
+            $sumStud += $newOut[11];
+            $sumReg += ($newOut[4] * $newOut[11]);
+        }
+
+        //counter is only used to identify the first entry
+        $counter++;
+    }
+}
+
+$newSubj = array_unique($subj);
+sort($newSubj);
+
+
+for ($i = 0; $i < count($stud); $i++) {
+    $temp = array("subject" => $newSubj[$i], "sections" => $sec[$i], "enrolledstudents" => $stud[$i], "credithoursregistered" => $reg[$i]);
+    $json = json_encode($temp);
+    echo $json;
+    echo "\n";
+}
+
+?>
